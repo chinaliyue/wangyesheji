@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>ALPHA STATION // 交易大师动态控制台 v6.0 持仓平仓一体化</title>
+    <style>
+        :root {
+            --bg-color: #06090e;
+            --panel-bg: #0d111a;
+            --panel-border: #1b2230;
+            --text-primary: #e6edf3;
+            --text-secondary: #7d8590;
+            --accent-green: #2ea043;
+            --accent-red: #da3633;
+            --accent-blue: #2f81f7;
+            --accent-gold: #d4a373;
+            --nav-bg: #161b22;
+            --title-green-bg: #112a1a; 
+            --title-green-border: #1f5733;
+            --title-turtle-bg: #1c1a12;
+            --title-turtle-border: #4d3d1a;
+            --turtle-formula-bg: #090c12;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-size: 13px;
+            line-height: 1.6;
+            padding: 0 15px 15px 15px;
+        }
+
+        header {
+            position: sticky; top: 0; z-index: 100;
+            background-color: var(--panel-bg); border-bottom: 1px solid var(--panel-border);
+            padding: 10px 20px; margin-bottom: 20px; margin-left: -15px; margin-right: -15px;
+        }
+        .header-top { display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-size: 16px; font-weight: bold; }
+        .logo span { color: var(--accent-green); }
+        .header-controls { display: flex; align-items: center; gap: 12px; }
+
+        .snapshot-btn {
+            background-color: rgba(47, 129, 247, 0.15); border: 1px solid rgba(47, 129, 247, 0.4);
+            color: #58a6ff; padding: 6px 14px; border-radius: 4px; font-size: 12px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .snapshot-btn:hover { background-color: var(--accent-blue); color: white; }
+        .snapshot-btn.export-btn { background-color: rgba(212,163,115,0.15); color:#d4a373; border-color:rgba(212,163,115,0.4); }
+        .snapshot-btn.export-btn:hover { background-color: var(--accent-gold); color: #06090e; }
+        
+        .system-time { font-size: 12px; color: var(--accent-gold); font-weight: 500; transition: color 0.3s; }
+
+        .main-layout { display: grid; grid-template-columns: 5.5fr 6.5fr; gap: 20px; align-items: start; }
+        .column { display: flex; flex-direction: column; gap: 20px; }
+        .panel { background-color: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 6px; padding: 15px; overflow: hidden; }
+        .panel-title { font-size: 14px; font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+        
+        .panel-theme-title { background-color: var(--title-green-bg); border: 1px solid var(--title-green-border); padding: 8px 12px; margin-top: -15px; margin-left: -15px; margin-right: -15px; margin-bottom: 12px; border-radius: 5px 5px 0 0; }
+        .panel-turtle-title { background-color: var(--title-turtle-bg); border: 1px solid var(--title-turtle-border); padding: 8px 12px; margin-top: -15px; margin-left: -15px; margin-right: -15px; margin-bottom: 12px; border-radius: 5px 5px 0 0; color: var(--accent-gold); }
+
+        .formula-box { background-color: var(--turtle-formula-bg); border: 1px dashed var(--panel-border); border-radius: 4px; padding: 6px 10px; margin: 6px 0; font-family: monospace; font-size: 12px; color: #8bb4f9; text-align: center; }
+
+        .action-badge-btn { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); color: #8bb4f9; border: 1px solid rgba(88, 166, 255, 0.3); cursor: pointer; }
+        .action-badge-btn.saving { background: #2ea043; color: white; }
+        .editable-textarea { width: 100%; height: 95px; background-color: #06090e; border: 1px solid var(--panel-border); color: var(--text-primary); padding: 8px; border-radius: 4px; font-size: 12.5px; resize: vertical; outline: none; }
+
+        .stats-kpi-box { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; background-color: #090d14; padding: 10px; border-radius: 6px; border: 1px solid var(--panel-border); }
+        .kpi-item { display: flex; flex-direction: column; align-items: center; gap: 2px; border-right: 1px solid var(--panel-border); }
+        .kpi-item:last-child { border-right: none; }
+        .kpi-label { font-size: 11px; color: var(--text-secondary); }
+        .kpi-value { font-size: 15px; font-weight: 700; font-family: monospace; }
+
+        .chart-wrapper { width: 100%; height: 300px; background-color: #06090e; border: 1px solid var(--panel-border); border-radius: 4px; position: relative; }
+        #equity-svg { display: block; width: 100%; height: 100%; cursor: crosshair; }
+        #svg-line, #svg-area { pointer-events: none; }
+        #chart-click-rect { cursor: pointer; }
+
+        .input-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 10px; margin-bottom: 12px; background: #090d14; padding: 10px; border-radius: 4px; border: 1px solid var(--panel-border); align-items: flex-end; }
+        .input-group { display: flex; flex-direction: column; gap: 4px; }
+        .input-group label { font-size: 11px; color: var(--text-secondary); }
+        .input-group input, .input-group select { background-color: #161b22; border: 1px solid var(--panel-border); color: var(--text-primary); padding: 4px 6px; border-radius: 4px; font-size: 12px; outline: none; }
+
+        .btn { background-color: var(--accent-green); color: white; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 12px; height: 26px; }
+        .btn-danger { background-color: rgba(218, 54, 51, 0.15); border: 1px solid rgba(218, 54, 51, 0.4); color: #ff7b72; }
+        .btn-danger:hover { background-color: var(--accent-red); color: white; }
+        .btn-sm { padding: 2px 8px; height: 24px; font-size: 11px; margin-left: 4px; }
+
+        .data-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+        .data-table th { color: var(--text-secondary); padding: 6px 8px; border-bottom: 1px solid var(--panel-border); }
+        .data-table td { padding: 6px 8px; border-bottom: 1px solid #161b22; vertical-align: middle; }
+        .editable-cell { background: transparent; border: 1px solid transparent; color: var(--text-primary); width: 100%; padding: 2px 4px; outline: none; }
+        .editable-cell:focus { background: #161b22; border-color: var(--panel-border); }
+
+        .file-import-label { font-size: 11px; color: #58a6ff; background: rgba(88, 166, 255, 0.1); border: 1px dashed rgba(88, 166, 255, 0.4); padding: 5px 12px; border-radius: 4px; cursor: pointer; }
+        .up-color { color: var(--accent-green); }
+        .down-color { color: var(--accent-red); }
+        
+        #chart-tooltip {
+            position: fixed;
+            background: #0d111a;
+            border: 1px solid var(--accent-green);
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            font-family: monospace;
+            color: var(--text-primary);
+            pointer-events: none;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            backdrop-filter: blur(4px);
+            white-space: nowrap;
+            display: none;
+        }
+        
+        /* 历史记录区域高度翻倍 */
+        .history-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--panel-border);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-top">
+            <div class="logo">ALPHA STATION <span>// 交易大师全栈控制台 v6.0 [持仓平仓一体化]</span></div>
+            <div class="header-controls">
+                <button class="snapshot-btn export-btn" onclick="exportDataLocally()">💾 导出离线安全快照 (.json)</button>
+                <div class="system-time" id="save-status">💾 状态：持久缓存层已就绪</div>
+            </div>
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <div class="column" id="themes-container">
+            <!-- 交易原则面板 (完整保留) -->
+            <div class="panel" data-theme-id="turtle-market"><div class="panel-title panel-turtle-title"><span>🐢 01. 市场选择：交易什么？</span><button class="action-badge-btn" onclick="toggleEditTheme('turtle-market')">📝 修改</button></div><div class="text-block" id="content-turtle-market">海龟不主观预测，只选择流动性好、波动率较大的市场（涵盖商品、外汇、股指等），确保能够顺利建仓和平仓。</div></div>
+            <div class="panel" data-theme-id="turtle-position"><div class="panel-title panel-turtle-title"><span>🐢 02. 头寸规模：买多少？(核心风控)</span><button class="action-badge-btn" onclick="toggleEditTheme('turtle-position')">📝 修改</button></div><div class="text-block" id="content-turtle-position">严格以账户的单笔风险（通常设为 1%）和市场波动率（ATR）来决定头寸大小。波动率 (ATR)：反映价格的真实波动幅度。<div class="formula-box">头寸单位 = (账户总资金 × 1%) / (ATR × 合约乘数)</div>单市场上限：单一市场的总头寸不能超过 4 个单位。</div></div>
+            <div class="panel" data-theme-id="turtle-entry"><div class="panel-title panel-turtle-title"><span>🐢 03. 买入信号：何时入场？</span><button class="action-badge-btn" onclick="toggleEditTheme('turtle-entry')">📝 修改</button></div><div class="text-block" id="content-turtle-entry">使用突破系统来触发交易：系统一：当价格突破过去 20个交易日 的最高价时，买入 1 个单位（若前一次突破信号盈利，则本次信号过滤不买）。系统二：当价格突破过去 55个交易日 的最高价时，直接买入 1 个单位。</div></div>
+            <div class="panel" data-theme-id="turtle-add"><div class="panel-title panel-turtle-title"><span>🐢 04. 加仓：如何加码？</span><button class="action-badge-btn" onclick="toggleEditTheme('turtle-add')">📝 修改</button></div><div class="text-block" id="content-turtle-add">当价格朝有利方向波动时，按照 0.5 × ATR 的价格间隔逐步加仓，直到达到单市场头寸上限（4个单位）为止。这保证了在正确方向上赚取最大利润。</div></div>
+            <div class="panel" data-theme-id="turtle-exit"><div class="panel-title panel-turtle-title"><span>🐢 05. 止损与止盈：何时退出？</span><button class="action-badge-btn" onclick="toggleEditTheme('turtle-exit')">📝 修改</button></div><div class="text-block" id="content-turtle-exit">止损：任何头寸的逆向波动超过 2 × ATR 则必须止损；或加仓后将整体止损位上移。平仓（止盈）：系统一：当价格跌破过去 10个交易日 的最低价时卖出。系统二：当价格跌破过去 20个交易日 的最低价时卖出。</div></div>
+            <div class="panel" data-theme-id="risk-control"><div class="panel-title panel-theme-title"><span>01. 风险控制 (ATR 动态底盘)</span><button class="action-badge-btn" onclick="toggleEditTheme('risk-control')">📝 修改</button></div><div class="text-block" id="content-risk-control">单笔独立头寸的风险暴露严格限制在账户总净值的 1% 以内。放弃固定点数止损，全面切换为 ATR 动态均幅通道，彻底剥离主观抗单情绪。</div></div>
+            <div class="panel" data-theme-id="discipline"><div class="panel-title panel-theme-title"><span>02. 交易纪律 (均线多空过滤)</span><button class="action-badge-btn" onclick="toggleEditTheme('discipline')">📝 修改</button></div><div class="text-block" id="content-discipline">长线必须配合 Ribbon 丝带均线系统排列：多头排列才进场做多，空头排列才进场做空。只要系统的过滤条件未能全部对齐，便绝不扣动扳机。</div></div>
+            <div class="panel" data-theme-id="structure"><div class="panel-title panel-theme-title"><span>03. 结构化进场 (1-4-15 系统)</span><button class="action-badge-btn" onclick="toggleEditTheme('structure')">📝 修改</button></div><div class="text-block" id="content-structure">严格执行 1-4-15 结构化趋势系统：以 4 小时级别作为大趋势滤网，返回 15 分钟级别寻找微观结构切入点，严禁越级交易。</div></div>
+            <div class="panel" data-theme-id="position-mgmt"><div class="panel-title panel-theme-title"><span>04. 仓位管理 (反马丁格尔)</span><button class="action-badge-btn" onclick="toggleEditTheme('position-mgmt')">📝 修改</button></div><div class="text-block" id="content-position-mgmt">坚决执行反马丁格尔逻辑。严禁在头寸产生亏损时进行任何形式的逆势抗单加仓；仓位规模的递增只允许建立在已有头寸产生确定浮盈的基础上，实现利润的动态安全复利。</div></div>
+            <div class="panel" data-theme-id="exit-strategy"><div class="panel-title panel-theme-title"><span>05. 动态离场规范</span><button class="action-badge-btn" onclick="toggleEditTheme('exit-strategy')">📝 修改</button></div><div class="text-block" id="content-exit-strategy">全面移除不兼容的布林带条件。平仓严格挂钩动态 ATR 移动通道或红色移动平均线（Red Moving Average），确保获利单能安全落袋。</div></div>
+            <div class="panel" data-theme-id="patience"><div class="panel-title panel-theme-title"><span>06. 耐心等待</span><button class="action-badge-btn" onclick="toggleEditTheme('patience')">📝 修改</button></div><div class="text-block" id="content-patience">静心等待趋势完全共振、风险回报比达到最完美的极窄边界窗口浮现。</div></div>
+            <div class="panel" data-theme-id="action-unity"><div class="panel-title panel-theme-title"><span>07. 知行合一</span><button class="action-badge-btn" onclick="toggleEditTheme('action-unity')">📝 修改</button></div><div class="text-block" id="content-action-unity">看对且做对，计划您的交易，交易您的计划。</div></div>
+            <div class="panel" data-theme-id="review"><div class="panel-title panel-theme-title"><span>08. 复盘精进</span><button class="action-badge-btn" onclick="toggleEditTheme('review')">📝 修改</button></div><div class="text-block" id="content-review">每日收盘复盘所有成交与未成交信号，量化回测统计数据。</div></div>
+            <div class="panel" data-theme-id="emotions"><div class="panel-title panel-theme-title"><span>09. 情绪隔离</span><button class="action-badge-btn" onclick="toggleEditTheme('emotions')">📝 修改</button></div><div class="text-block" id="content-emotions">交易只是纯粹的概率游戏，彻底隔离连损带来的挫败感与连盈带来的傲慢。</div></div>
+            <div class="panel" data-theme-id="longterm"><div class="panel-title panel-theme-title"><span>10. 长期主义</span><button class="action-badge-btn" onclick="toggleEditTheme('longterm')">📝 修改</button></div><div class="text-block" id="content-longterm">专注于交易系统的期望值复利演进，不在乎一星半点的隔夜波动。</div></div>
+        </div>
+
+        <div class="column">
+            <div class="panel">
+                <div class="panel-title"><span>📈 动态综合资产净值曲线 (点击曲线任意位置显示余额)</span></div>
+                <div class="stats-kpi-box">
+                    <div class="kpi-item"><span class="kpi-label">📊 总交易次数</span><span class="kpi-value" id="kpi-count" style="color: var(--accent-blue);">0</span></div>
+                    <div class="kpi-item"><span class="kpi-label">🎯 实时胜率 %</span><span class="kpi-value up-color" id="kpi-winrate">0.0%</span></div>
+                    <div class="kpi-item"><span class="kpi-label">📉 最大回撤 ($)</span><span class="kpi-value down-color" id="kpi-drawdown">$0.00</span></div>
+                    <div class="kpi-item"><span class="kpi-label">💰 累计净盈亏</span><span class="kpi-value up-color" id="kpi-total-return">$0.00</span></div>
+                </div>
+                <div class="chart-wrapper">
+                    <svg id="equity-svg" viewBox="0 0 1200 300" preserveAspectRatio="none">
+                        <defs><linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2ea043" stop-opacity="0.25"/><stop offset="100%" stop-color="#2ea043" stop-opacity="0.0"/></linearGradient></defs>
+                        <path id="svg-area" d="" fill="url(#chartGradient)" />
+                        <path id="svg-line" d="" fill="none" stroke="#2ea043" stroke-width="1.5"/>
+                        <rect id="chart-click-rect" x="0" y="0" width="1200" height="300" fill="transparent" />
+                        <text id="svg-peak-text" x="20" y="30" fill="#2ea043" font-size="12" font-weight="bold">基准本金原点: $0.00</text>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- 持仓管理模块：动态增删行，一键平仓 -->
+            <div class="panel">
+                <div class="panel-title">
+                    <span>📦 实时活跃持仓记录监控 (一键平仓并记录)</span>
+                    <button class="btn btn-sm" onclick="addPositionRow()">+ 添加持仓</button>
+                </div>
+                <table class="data-table" id="portfolio-table">
+                    <thead>
+                        <tr><th>交易商品</th><th>方向</th><th>手数</th><th>开仓均价</th><th>当前现价</th><th>操作</th>
+                        </thead>
+                    <tbody id="portfolio-tbody"></tbody>
+                </table>
+            </div>
+
+            <!-- 历史记录模块：高度翻倍，最新记录在上方 -->
+            <div class="panel">
+                <div class="panel-title"><span>📥 真实交易历史数据中心 (最新交易在上方)</span></div>
+                <div class="input-row">
+                    <div class="input-group"><label>商品</label><input type="text" id="log-symbol" value="GBPUSD"></div>
+                    <div class="input-group"><label>方向</label><select id="log-dir"><option value="BUY">BUY</option><option value="SELL">SELL</option></select></div>
+                    <div class="input-group"><label>量</label><input type="text" id="log-lots" value="0.01"></div>
+                    <div class="input-group"><label>盈亏</label><input type="number" id="log-profit" value="2.5"></div>
+                    <button class="btn" onclick="addManualLog()">添加</button>
+                    <button class="btn btn-danger" onclick="clearLogs()">🗑️ 清空历史</button>
+                </div>
+                <div class="history-container">
+                    <table class="data-table" id="logs-table">
+                        <thead>
+                            <tr><th>结算时间</th><th>商品</th><th>方向</th><th>交易量</th><th>净盈亏 (USD)</th></tr>
+                        </thead>
+                        <tbody id="logs-tbody"></tbody>
+                    </table>
+                </div>
+                <div style="margin-top:10px; display:flex; gap:10px;">
+                    <label class="file-import-label" for="file-input">📁 导入真实 cTrader 报表 (CSV/TXT/TSV 支持余额列)</label>
+                    <input type="file" id="file-input" accept=".csv, .txt, .tsv" style="display:none;" onchange="importHistoryFile(this)">
+                    <label class="file-import-label" for="json-import-input" style="background:rgba(212,163,115,0.1); border-color:rgba(212,163,115,0.4); color:#d4a373;">🧩 导入离线快照备份 (.json)</label>
+                    <input type="file" id="json-import-input" accept=".json" style="display:none;" onchange="importLocalJSONBackup(this)">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="chart-tooltip"></div>
+
+    <script>
+        // ========== 辅助函数：盈亏估算（基于通用公式） ==========
+        function estimateProfit(symbol, direction, lots, openPrice, currentPrice) {
+            // 简易估算：外汇/黄金/股指 均采用 (当前价-开仓价)*手数*100000*方向系数
+            // 方向: BUY 方向系数 +1, SELL -1
+            const dirMulti = (direction.toUpperCase() === 'BUY') ? 1 : -1;
+            const priceDiff = (currentPrice - openPrice) * dirMulti;
+            // 默认合约规模 100000 (标准手), 手数 lots 可以是小数
+            const contractSize = 100000;
+            let estimated = priceDiff * lots * contractSize;
+            // 对黄金美元 (XAUUSD) 做特殊调整, 原数据0.01手波动1美元约1美金, 上面公式过大，修正为乘0.01
+            if(symbol.toUpperCase().includes('GOLD') || symbol.toUpperCase() === 'XAUUSD') {
+                estimated = priceDiff * lots * 100;  // 0.01手 每美元波动 1美元
+            }
+            // 对US30等指数也调整
+            if(symbol.toUpperCase().includes('US30') || symbol.toUpperCase().includes('US500')) {
+                estimated = priceDiff * lots * 1;   // 1手 1点 1美元
+            }
+            // 限制精度
+            return Math.round(estimated * 100) / 100;
+        }
+
+        // ========== 添加持仓行 ==========
+        function addPositionRow(data = null) {
+            const tbody = document.getElementById("portfolio-tbody");
+            const tr = document.createElement("tr");
+            const defaultData = data || { symbol: "EURUSD", dir: "BUY", lots: "0.01", openPrice: "1.10000", curPrice: "1.10200" };
+            tr.innerHTML = `
+                <td><input type="text" class="editable-cell" value="${defaultData.symbol}" style="font-weight:bold;"></td>
+                <td><input type="text" class="editable-cell ${defaultData.dir === 'BUY' ? 'up-color' : 'down-color'}" value="${defaultData.dir}"></td>
+                <td><input type="text" class="editable-cell" value="${defaultData.lots}"></td>
+                <td><input type="text" class="editable-cell" value="${defaultData.openPrice}"></td>
+                <td><input type="text" class="editable-cell" value="${defaultData.curPrice}"></td>
+                <td><button class="btn btn-sm" onclick="closePosition(this)">🔒 平仓记录</button></td>
+            `;
+            tbody.appendChild(tr);
+            autoSaveToLocalStorage();
+        }
+
+        // ========== 平仓：计算盈亏，添加到历史记录（最新在上方），删除持仓行 ==========
+        function closePosition(btn) {
+            const row = btn.closest("tr");
+            const inputs = row.querySelectorAll("input");
+            if(inputs.length < 5) return;
+            const symbol = inputs[0].value.trim().toUpperCase();
+            let direction = inputs[1].value.trim().toUpperCase();
+            if(direction !== 'BUY' && direction !== 'SELL') direction = 'BUY';
+            const lots = parseFloat(inputs[2].value) || 0.01;
+            const openPrice = parseFloat(inputs[3].value);
+            const curPrice = parseFloat(inputs[4].value);
+            if(isNaN(openPrice) || isNaN(curPrice)) {
+                alert("请填写有效的开仓价和当前现价");
+                return;
+            }
+            // 估算盈亏
+            let estimated = estimateProfit(symbol, direction, lots, openPrice, curPrice);
+            // 弹出确认框，允许用户修改盈亏
+            let userProfit = prompt(`平仓盈亏 (USD):`, estimated.toFixed(2));
+            if(userProfit === null) return; // 取消平仓
+            let finalProfit = parseFloat(userProfit);
+            if(isNaN(finalProfit)) finalProfit = estimated;
+            
+            // 添加到历史记录 (最新在上方)
+            addToHistory(symbol, direction, lots, finalProfit);
+            // 删除持仓行
+            row.remove();
+            autoSaveToLocalStorage();
+        }
+        
+        // 统一的历史记录添加函数 (插入到最前方)
+        function addToHistory(symbol, direction, lots, profit) {
+            const tbody = document.getElementById("logs-tbody");
+            const timeStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            const tr = document.createElement("tr");
+            tr.setAttribute("data-profit", profit);
+            // 计算新余额（基于当前最后一笔余额或累计盈亏）放到后续渲染中自动处理，此处只存储盈亏，余额由渲染时根据顺序重建
+            // 为了保持余额曲线准确，新记录需要维持余额连续性。我们仅存储盈亏，渲染时自动计算余额。
+            // 注意：为了余额准确，新记录应追加正确的余额属性，但为了简单且保证曲线正确，我们可以在添加时基于当前总盈亏反推一个余额。
+            // 由于渲染时会按时间顺序累计盈亏，如果记录中没有余额字段，曲线会基于累计盈亏绘制。这依然能反映账户变化趋势。
+            // 但我们更希望余额字段能精准反映实际账户余额。简单起见，新添加的记录只存盈亏，渲染时会从已有余额或累计计算。
+            // 为了保持一致性，我们从现有记录中获取最后余额（如果有）来计算新余额。
+            let lastBalance = getLastBalanceFromHistory();
+            let newBalance = (lastBalance !== null) ? lastBalance + profit : null;
+            if(newBalance !== null) tr.setAttribute("data-balance", newBalance);
+            
+            const profitClass = profit >= 0 ? "up-color" : "down-color";
+            tr.innerHTML = `<td>${timeStr}</td><td><strong>${symbol}</strong></td><td class="${direction==='BUY'?'up-color':'down-color'}">${direction}</td><td>${lots}</td><td class="${profitClass}">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>`;
+            // 插入到最前面 (最新在上)
+            tbody.insertBefore(tr, tbody.firstChild);
+            renderEquityChart();
+            autoSaveToLocalStorage();
+        }
+        
+        // 获取历史记录中的最后余额（最新一条记录余额，因为最新在上，所以取第一个有余额的）
+        function getLastBalanceFromHistory() {
+            const rows = Array.from(document.querySelectorAll("#logs-tbody tr"));
+            for(let row of rows) {
+                const bal = row.getAttribute("data-balance");
+                if(bal !== null && !isNaN(parseFloat(bal))) return parseFloat(bal);
+            }
+            return null;
+        }
+        
+        // 手动添加历史记录 (也插入到最前)
+        function addManualLog() {
+            const sym = document.getElementById("log-symbol").value.toUpperCase();
+            const dir = document.getElementById("log-dir").value;
+            const profitVal = parseFloat(document.getElementById("log-profit").value) || 0;
+            const lotsVal = document.getElementById("log-lots").value;
+            addToHistory(sym, dir, lotsVal, profitVal);
+        }
+        
+        // 清空历史
+        function clearLogs() {
+            if(confirm("确定清空所有本地历史交易流水吗？")) {
+                document.getElementById("logs-tbody").innerHTML = "";
+                // 同时重置持仓表? 不清持仓，只清历史
+                renderEquityChart();
+                autoSaveToLocalStorage();
+            }
+        }
+        
+        // ========== 核心余额曲线渲染 (支持最新在上排序) ==========
+        function renderEquityChart() {
+            let rows = Array.from(document.querySelectorAll("#logs-tbody tr"));
+            if(rows.length === 0) {
+                document.getElementById("kpi-count").innerText = "0";
+                document.getElementById("kpi-winrate").innerText = "0.0%";
+                document.getElementById("kpi-drawdown").innerText = "$0.00";
+                document.getElementById("kpi-total-return").innerText = "$0.00";
+                document.getElementById("svg-line").setAttribute("d", "M 0 150 L 1200 150");
+                document.getElementById("svg-area").setAttribute("d", "M 0 150 L 1200 150 L 1200 300 L 0 300 Z");
+                document.getElementById("svg-peak-text").innerHTML = "基准本金原点: $0.00";
+                window.currentChartPoints = [];
+                window.currentChartTimes = [];
+                return;
+            }
+            // 注意 rows 目前是 DOM 顺序 (最新在上)，为了绘制曲线我们需要按时间升序 (旧到新)，所以先反转
+            let records = [];
+            for(let tr of rows) {
+                const timeCell = tr.cells[0];
+                const profitAttr = tr.getAttribute("data-profit");
+                const balanceAttr = tr.getAttribute("data-balance");
+                const profitVal = parseFloat(profitAttr) || 0;
+                const balanceVal = balanceAttr !== null ? parseFloat(balanceAttr) : NaN;
+                let timeStr = timeCell ? timeCell.innerText.trim() : "";
+                records.push({ time: timeStr, profit: profitVal, balance: balanceVal });
+            }
+            // 按时间升序排序 (旧到新)
+            records.sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+            
+            let balanceSeries = [];
+            let timeSeries = [];
+            let profitsForWin = [];
+            let hasBalance = records.some(r => !isNaN(r.balance));
+            
+            if(hasBalance) {
+                for(let rec of records) {
+                    if(!isNaN(rec.balance)) {
+                        balanceSeries.push(rec.balance);
+                        timeSeries.push(rec.time);
+                        profitsForWin.push(rec.profit);
+                    }
+                }
+                // 补齐起始点
+                if(balanceSeries.length && records.length && isNaN(records[0].balance) && !isNaN(records[0].profit)) {
+                    let firstKnown = balanceSeries[0];
+                    let cumuBefore = records.slice(0, records.findIndex(r=>!isNaN(r.balance))).reduce((s,r)=>s + r.profit,0);
+                    let impliedStart = firstKnown - cumuBefore;
+                    if(!isNaN(impliedStart)) { balanceSeries.unshift(impliedStart); timeSeries.unshift(records[0].time); }
+                }
+            } else {
+                let cumulative = 0;
+                for(let rec of records) {
+                    cumulative += rec.profit;
+                    balanceSeries.push(cumulative);
+                    timeSeries.push(rec.time);
+                    profitsForWin.push(rec.profit);
+                }
+                if(balanceSeries.length) { balanceSeries.unshift(0); timeSeries.unshift(records[0]?.time || "起始"); }
+            }
+            if(balanceSeries.length === 0) return;
+            
+            window.currentChartPoints = [...balanceSeries];
+            window.currentChartTimes = [...timeSeries];
+            
+            let finalBalance = balanceSeries[balanceSeries.length-1];
+            let initialBalance = balanceSeries[0];
+            let totalNet = finalBalance - initialBalance;
+            let winCount = profitsForWin.filter(p => p > 0).length;
+            let totalTrades = profitsForWin.length;
+            let winRate = totalTrades ? (winCount / totalTrades * 100).toFixed(1) : "0.0";
+            let peak = balanceSeries[0];
+            let maxDrawdown = 0;
+            for(let i=1; i<balanceSeries.length; i++) {
+                if(balanceSeries[i] > peak) peak = balanceSeries[i];
+                let dd = peak - balanceSeries[i];
+                if(dd > maxDrawdown) maxDrawdown = dd;
+            }
+            document.getElementById("kpi-count").innerText = totalTrades;
+            document.getElementById("kpi-winrate").innerText = winRate + "%";
+            document.getElementById("kpi-drawdown").innerText = "$" + maxDrawdown.toFixed(2);
+            document.getElementById("kpi-total-return").innerHTML = (totalNet >= 0 ? "+" : "") + "$" + totalNet.toFixed(2);
+            
+            const svgW = 1200, svgH = 300;
+            let minB = Math.min(...balanceSeries), maxB = Math.max(...balanceSeries);
+            let range = maxB - minB;
+            if(range === 0) range = 1;
+            let padding = range * 0.1;
+            minB -= padding; maxB += padding; range = maxB - minB;
+            let stepX = svgW / (balanceSeries.length - 1 || 1);
+            let pathStr = `M 0 ${svgH - ((balanceSeries[0] - minB) / range) * svgH}`;
+            for(let i=1; i<balanceSeries.length; i++) {
+                let x = i * stepX;
+                let y = svgH - ((balanceSeries[i] - minB) / range) * svgH;
+                pathStr += ` L ${x} ${y}`;
+            }
+            document.getElementById("svg-line").setAttribute("d", pathStr);
+            document.getElementById("svg-area").setAttribute("d", pathStr + ` L ${svgW} ${svgH} L 0 ${svgH} Z`);
+            document.getElementById("svg-peak-text").innerHTML = `最终权益余额: $${finalBalance.toFixed(2)}  |  起始: $${initialBalance.toFixed(2)}`;
+            window._balanceRange = { minB, maxB };
+        }
+        
+        // ========== 导入历史文件 (保持排序最新在上) ==========
+        function importHistoryFile(input) { /* 保持原有智能导入，但最终渲染时会重新排序，无需改动核心逻辑，仅需在添加后刷新曲线 */
+            const file = input.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                let content = e.target.result;
+                if(content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
+                const lines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+                if(lines.length === 0) return;
+                let delimiter = "\t";
+                const firstDataLine = lines.find(l => !l.startsWith("=====") && !l.startsWith("工作表"));
+                if(firstDataLine) { if(firstDataLine.includes(",")) delimiter = ","; else if(firstDataLine.includes(";")) delimiter = ";"; }
+                let headerLineIndex = -1, headers = [];
+                for(let i=0; i<lines.length; i++) {
+                    const line = lines[i];
+                    const lowerLine = line.toLowerCase();
+                    if((lowerLine.includes("平仓时间") || lowerLine.includes("close time") || lowerLine.includes("交易品种")) && !line.startsWith("=====")) {
+                        headerLineIndex = i; headers = line.split(delimiter).map(h => h.replace(/[\"']/g, "").trim().toLowerCase()); break;
+                    }
+                }
+                if(headerLineIndex === -1) { alert("未找到表头"); return; }
+                const timeIdx = headers.findIndex(h => h.includes("平仓时间") || h.includes("close time") || h.includes("time"));
+                const symbolIdx = headers.findIndex(h => h.includes("交易品种") || h.includes("symbol"));
+                const directionIdx = headers.findIndex(h => h.includes("开仓方向") || h.includes("方向"));
+                const profitIdx = headers.findIndex(h => (h.includes("净值") && !h.includes("余额")) || h === "净值($)" || h.includes("pnl"));
+                const balanceIdx = headers.findIndex(h => h.includes("账户余额") || h === "余额");
+                if(timeIdx === -1 || symbolIdx === -1) { alert("缺少必要列"); return; }
+                const tbody = document.getElementById("logs-tbody");
+                tbody.innerHTML = "";
+                let importedCount = 0;
+                for(let i=headerLineIndex+1; i<lines.length; i++) {
+                    const line = lines[i];
+                    if(line.startsWith("=====") || line.startsWith("工作表")) continue;
+                    const cols = line.split(delimiter).map(c => c.replace(/[\"']/g, "").trim());
+                    if(cols.length <= Math.max(timeIdx, symbolIdx, profitIdx)) continue;
+                    let timeStr = cols[timeIdx] || "";
+                    let symbol = cols[symbolIdx].toUpperCase();
+                    let rawDir = directionIdx !== -1 ? cols[directionIdx] : "BUY";
+                    let direction = (rawDir.includes("买") || rawDir.includes("BUY")) ? "BUY" : "SELL";
+                    let lotsRaw = cols.length > 5 ? cols[5] : "0.01";
+                    let netProfit = profitIdx !== -1 ? parseFloat(cols[profitIdx].replace(/[^\d.-]/g, "")) || 0 : 0;
+                    let balance = (balanceIdx !== -1) ? parseFloat(cols[balanceIdx].replace(/[^\d.-]/g, "")) : NaN;
+                    if(!symbol || isNaN(netProfit)) continue;
+                    const tr = document.createElement("tr");
+                    tr.setAttribute("data-profit", netProfit);
+                    if(!isNaN(balance)) tr.setAttribute("data-balance", balance);
+                    const profitClass = netProfit >= 0 ? "up-color" : "down-color";
+                    tr.innerHTML = `<td>${timeStr}</td><td><strong>${symbol}</strong></td><td class="${direction==='BUY'?'up-color':'down-color'}">${direction}</td><td>${lotsRaw}</td><td class="${profitClass}">${netProfit >= 0 ? '+' : ''}$${netProfit.toFixed(2)}</td>`;
+                    tbody.appendChild(tr);
+                    importedCount++;
+                }
+                if(importedCount === 0) alert("未解析到数据");
+                else {
+                    // 导入后重新渲染曲线（曲线内部会按时间排序）
+                    renderEquityChart();
+                    autoSaveToLocalStorage();
+                    alert(`✅ 导入 ${importedCount} 笔交易，最新记录已置顶显示。`);
+                }
+            };
+            reader.readAsText(file, "UTF-8");
+        }
+        
+        // 曲线点击取值 (复用之前逻辑)
+        function setupChartClick() {
+            const svg = document.getElementById("equity-svg");
+            const tooltip = document.getElementById("chart-tooltip");
+            svg.addEventListener("click", (e) => {
+                if(!window.currentChartPoints || !window.currentChartPoints.length) { tooltip.style.display = "none"; return; }
+                const rect = svg.getBoundingClientRect();
+                const scaleX = 1200 / rect.width;
+                const clickX = (e.clientX - rect.left) * scaleX;
+                if(clickX < 0 || clickX > 1200) { tooltip.style.display = "none"; return; }
+                let index = Math.round((clickX / 1200) * (window.currentChartPoints.length - 1));
+                index = Math.min(Math.max(0, index), window.currentChartPoints.length-1);
+                const balanceVal = window.currentChartPoints[index];
+                const timeLabel = window.currentChartTimes[index] || "未知时间";
+                tooltip.innerHTML = `📌 ${timeLabel}<br>💰 账户余额: $${balanceVal.toFixed(2)}`;
+                tooltip.style.display = "block";
+                tooltip.style.left = (e.clientX + 15) + "px";
+                tooltip.style.top = (e.clientY - 30) + "px";
+                setTimeout(() => { tooltip.style.display = "none"; }, 4000);
+            });
+            document.body.addEventListener("click", (e) => { if(!svg.contains(e.target)) tooltip.style.display = "none"; });
+        }
+        
+        // 持久化: 保存持仓和历史
+        function assemblePayload() {
+            const themesData = [];
+            document.querySelectorAll("#themes-container .panel").forEach(p => {
+                const id = p.getAttribute("data-theme-id");
+                const text = document.getElementById("content-" + id).innerText;
+                themesData.push({ id, text });
+            });
+            const portfolioData = [];
+            document.querySelectorAll("#portfolio-tbody tr").forEach(tr => {
+                const inputs = tr.querySelectorAll("input");
+                if(inputs.length >= 5) portfolioData.push({ symbol: inputs[0].value, dir: inputs[1].value, lots: inputs[2].value, openPrice: inputs[3].value, curPrice: inputs[4].value });
+            });
+            const logsData = [];
+            document.querySelectorAll("#logs-tbody tr").forEach(tr => {
+                const tds = tr.querySelectorAll("td");
+                if(tds.length >= 5) {
+                    const profitAttr = tr.getAttribute("data-profit");
+                    const balanceAttr = tr.getAttribute("data-balance");
+                    logsData.push({ time: tds[0].innerText, symbol: tds[1].innerText, dir: tds[2].innerText, lots: tds[3].innerText, profit: profitAttr ? parseFloat(profitAttr) : 0, balance: balanceAttr ? parseFloat(balanceAttr) : null });
+                }
+            });
+            return { version: "6.0-position-close", timestamp: Date.now(), themes: themesData, portfolio: portfolioData, logs: logsData };
+        }
+        function autoSaveToLocalStorage() { localStorage.setItem("alpha_station_core_data", JSON.stringify(assemblePayload())); const s=document.getElementById("save-status"); s.innerText="⚡ 实时保存"; s.style.color="var(--accent-green)"; setTimeout(()=>{ s.innerText="💾 持久缓存已锁死"; s.style.color="var(--accent-gold)"; },1000); }
+        function applyPayloadToUI(payload) {
+            if(payload.themes) payload.themes.forEach(t => { const el = document.getElementById("content-" + t.id); if(el) { el.innerText = t.text; formatTurtleFormula(el); } });
+            if(payload.portfolio) { const pTbody = document.getElementById("portfolio-tbody"); pTbody.innerHTML = ""; payload.portfolio.forEach(p => addPositionRow(p)); }
+            if(payload.logs) { const lTbody = document.getElementById("logs-tbody"); lTbody.innerHTML = ""; payload.logs.slice().reverse().forEach(l => { // 存储时按时间升序，恢复时反转保持最新在上
+                const tr = document.createElement("tr");
+                const profitVal = parseFloat(l.profit) || 0;
+                tr.setAttribute("data-profit", profitVal);
+                if(l.balance !== null && !isNaN(l.balance)) tr.setAttribute("data-balance", l.balance);
+                tr.innerHTML = `<td>${l.time}</td><td><strong>${l.symbol}</strong></td><td class="${l.dir==='BUY'?'up-color':'down-color'}">${l.dir}</td><td>${l.lots}</td><td class="${profitVal>=0?'up-color':'down-color'}">${profitVal>=0?'+':''}$${profitVal.toFixed(2)}</td>`;
+                lTbody.appendChild(tr);
+            }); }
+            renderEquityChart();
+        }
+        function loadFromLocalStorage() { const raw = localStorage.getItem("alpha_station_core_data"); if(!raw) return false; try { applyPayloadToUI(JSON.parse(raw)); return true; } catch(e) { return false; } }
+        function exportDataLocally() { const blob = new Blob([JSON.stringify(assemblePayload(), null, 2)], {type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`AlphaStation_v6.json`; a.click(); URL.revokeObjectURL(blob); }
+        function importLocalJSONBackup(input) { const file = input.files[0]; if(!file) return; const reader = new FileReader(); reader.onload = function(e) { try { const data = JSON.parse(e.target.result); applyPayloadToUI(data); autoSaveToLocalStorage(); alert("快照恢复成功"); } catch(err) { alert("解析失败"); } }; reader.readAsText(file); }
+        function toggleEditTheme(id) { /* 保留原编辑功能 */ const block = document.getElementById('content-'+id); const btn = block.previousElementSibling.querySelector('.action-badge-btn'); if(!block.querySelector('textarea')) { block.innerHTML = `<textarea class="editable-textarea" oninput="autoSaveToLocalStorage()">${block.innerText}</textarea>`; btn.innerText="💾 保存"; btn.classList.add('saving'); } else { let val = block.querySelector('textarea').value; block.innerText = val; formatTurtleFormula(block); btn.innerText="📝 修改"; btn.classList.remove('saving'); autoSaveToLocalStorage(); } }
+        function formatTurtleFormula(block) { if(block.innerHTML.includes("头寸单位")) block.innerHTML = block.innerHTML.replace(/(头寸单位[：\s=]+)([^单\n]+)/g, '<div class="formula-box">$2</div>'); }
+        window.onload = function() { if(!loadFromLocalStorage()) { addPositionRow(); renderEquityChart(); } setupChartClick(); };
+    </script>
+</body>
+</html>
