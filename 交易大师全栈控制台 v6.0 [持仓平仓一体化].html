@@ -211,8 +211,8 @@
                     </table>
                 </div>
                 <div style="margin-top:10px; display:flex; gap:10px;">
-                    <label class="file-import-label" for="file-input">📁 导入真实 cTrader 报表 (CSV/TXT/TSV 支持余额列)</label>
-                    <input type="file" id="file-input" accept=".csv, .txt, .tsv" style="display:none;" onchange="importHistoryFile(this)">
+                    <label class="file-import-label" for="file-input">📁 导入 cTrader/Excel 报表 (支持 .xlsx, .csv, .txt)</label>
+                    <input type="file" id="file-input" accept=".xlsx, .xls, .csv, .txt, .tsv" style="display:none;" onchange="importHistoryFile(this)">
                     <label class="file-import-label" for="json-import-input" style="background:rgba(212,163,115,0.1); border-color:rgba(212,163,115,0.4); color:#d4a373;">🧩 导入离线快照备份 (.json)</label>
                     <input type="file" id="json-import-input" accept=".json" style="display:none;" onchange="importLocalJSONBackup(this)">
                 </div>
@@ -222,23 +222,26 @@
 
     <div id="chart-tooltip"></div>
 
+    <!-- 引入 SheetJS 用于解析 Excel 文件 -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
     <script>
         // ========== 辅助函数：盈亏估算（基于通用公式） ==========
         function estimateProfit(symbol, direction, lots, openPrice, currentPrice) {
-            // 简易估算：外汇/黄金/股指 均采用 (当前价-开仓价)*手数*100000*方向系数
-            // 方向: BUY 方向系数 +1, SELL -1
+            // 简易估算：外汇/黄金/股指 均采用 (当前价 - 开仓价)*手数*100000*方向系数
+            // 方向：BUY 方向系数 +1, SELL -1
             const dirMulti = (direction.toUpperCase() === 'BUY') ? 1 : -1;
             const priceDiff = (currentPrice - openPrice) * dirMulti;
             // 默认合约规模 100000 (标准手), 手数 lots 可以是小数
             const contractSize = 100000;
             let estimated = priceDiff * lots * contractSize;
-            // 对黄金美元 (XAUUSD) 做特殊调整, 原数据0.01手波动1美元约1美金, 上面公式过大，修正为乘0.01
+            // 对黄金美元 (XAUUSD) 做特殊调整，原数据 0.01 手波动 1 美元约 1 美金，上面公式过大，修正为乘 0.01
             if(symbol.toUpperCase().includes('GOLD') || symbol.toUpperCase() === 'XAUUSD') {
-                estimated = priceDiff * lots * 100;  // 0.01手 每美元波动 1美元
+                estimated = priceDiff * lots * 100;  // 0.01 手 每美元波动 1 美元
             }
-            // 对US30等指数也调整
+            // 对 US30 等指数也调整
             if(symbol.toUpperCase().includes('US30') || symbol.toUpperCase().includes('US500')) {
-                estimated = priceDiff * lots * 1;   // 1手 1点 1美元
+                estimated = priceDiff * lots * 1;   // 1 手 1 点 1 美元
             }
             // 限制精度
             return Math.round(estimated * 100) / 100;
@@ -298,8 +301,7 @@
             const tr = document.createElement("tr");
             tr.setAttribute("data-profit", profit);
             // 计算新余额（基于当前最后一笔余额或累计盈亏）放到后续渲染中自动处理，此处只存储盈亏，余额由渲染时根据顺序重建
-            // 为了保持余额曲线准确，新记录需要维持余额连续性。我们仅存储盈亏，渲染时自动计算余额。
-            // 注意：为了余额准确，新记录应追加正确的余额属性，但为了简单且保证曲线正确，我们可以在添加时基于当前总盈亏反推一个余额。
+            // 为了保持余额曲线准确，新记录需要维持余额连续性。我们仅存储盈亏，渲染时会从已有余额或累计计算。
             // 由于渲染时会按时间顺序累计盈亏，如果记录中没有余额字段，曲线会基于累计盈亏绘制。这依然能反映账户变化趋势。
             // 但我们更希望余额字段能精准反映实际账户余额。简单起见，新添加的记录只存盈亏，渲染时会从已有余额或累计计算。
             // 为了保持一致性，我们从现有记录中获取最后余额（如果有）来计算新余额。
@@ -338,7 +340,7 @@
         function clearLogs() {
             if(confirm("确定清空所有本地历史交易流水吗？")) {
                 document.getElementById("logs-tbody").innerHTML = "";
-                // 同时重置持仓表? 不清持仓，只清历史
+                // 同时重置持仓表？不清持仓，只清历史
                 renderEquityChart();
                 autoSaveToLocalStorage();
             }
@@ -441,71 +443,208 @@
             }
             document.getElementById("svg-line").setAttribute("d", pathStr);
             document.getElementById("svg-area").setAttribute("d", pathStr + ` L ${svgW} ${svgH} L 0 ${svgH} Z`);
-            document.getElementById("svg-peak-text").innerHTML = `最终权益余额: $${finalBalance.toFixed(2)}  |  起始: $${initialBalance.toFixed(2)}`;
+            document.getElementById("svg-peak-text").innerHTML = `最终权益余额：$${finalBalance.toFixed(2)}  |  起始：$${initialBalance.toFixed(2)}`;
             window._balanceRange = { minB, maxB };
         }
         
-        // ========== 导入历史文件 (保持排序最新在上) ==========
-        function importHistoryFile(input) { /* 保持原有智能导入，但最终渲染时会重新排序，无需改动核心逻辑，仅需在添加后刷新曲线 */
+        // ========== 增强版导入历史文件 (支持 Excel .xlsx) ==========
+        function importHistoryFile(input) {
             const file = input.files[0];
             if(!file) return;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                let content = e.target.result;
-                if(content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
-                const lines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-                if(lines.length === 0) return;
-                let delimiter = "\t";
-                const firstDataLine = lines.find(l => !l.startsWith("=====") && !l.startsWith("工作表"));
-                if(firstDataLine) { if(firstDataLine.includes(",")) delimiter = ","; else if(firstDataLine.includes(";")) delimiter = ";"; }
-                let headerLineIndex = -1, headers = [];
-                for(let i=0; i<lines.length; i++) {
-                    const line = lines[i];
-                    const lowerLine = line.toLowerCase();
-                    if((lowerLine.includes("平仓时间") || lowerLine.includes("close time") || lowerLine.includes("交易品种")) && !line.startsWith("=====")) {
-                        headerLineIndex = i; headers = line.split(delimiter).map(h => h.replace(/[\"']/g, "").trim().toLowerCase()); break;
+            
+            const fileName = file.name.toLowerCase();
+            const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+            
+            if (isExcel) {
+                // 使用 SheetJS 解析 Excel
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, {type: 'array'});
+                        
+                        // 读取第一个工作表
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        
+                        // 转换为 JSON (数组格式，保留原始数据)
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+                        
+                        processImportedData(jsonData);
+                    } catch(err) {
+                        console.error("Excel 解析错误:", err);
+                        alert("❌ Excel 文件解析失败：" + err.message);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                // 原有的 CSV/TXT 处理逻辑
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    let content = e.target.result;
+                    if(content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
+                    const lines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+                    if(lines.length === 0) return;
+                    
+                    // 将 CSV 转换为二维数组以便统一处理
+                    let delimiter = "\t";
+                    const firstDataLine = lines.find(l => !l.startsWith("=====") && !l.startsWith("工作表"));
+                    if(firstDataLine) { 
+                        if(firstDataLine.includes(",")) delimiter = ","; 
+                        else if(firstDataLine.includes(";")) delimiter = ";"; 
+                    }
+                    
+                    const dataArray = lines.map(line => line.split(delimiter).map(c => c.replace(/[\"']/g, "").trim()));
+                    processImportedData(dataArray);
+                };
+                reader.readAsText(file, "UTF-8");
+            }
+        }
+        
+        // 统一处理导入的数据（二维数组格式）
+        function processImportedData(dataArray) {
+            if (!dataArray || dataArray.length === 0) {
+                alert("❌ 未找到任何数据");
+                return;
+            }
+            
+            // 智能查找表头行 - 增强版
+            let headerRowIndex = -1;
+            let headers = [];
+            
+            for (let i = 0; i < dataArray.length; i++) {
+                const row = dataArray[i];
+                if (!row || row.length === 0) continue;
+                
+                const rowStr = row.join(' ').toLowerCase();
+                
+                // 跳过明显的非表头行（如标题、分隔线、空行等）
+                if (rowStr.includes('=====') || rowStr.includes('工作表') || rowStr.includes('report') || rowStr.includes('account:')) continue;
+                if (row.length < 3) continue; // 表头至少应有 3 列
+                
+                // 检查是否包含关键表头词汇（更宽松匹配）
+                const hasTime = row.some(cell => {
+                    const c = (cell || '').toLowerCase();
+                    return c.includes('time') || c.includes('date') || c.includes('时间') || c.includes('close') || c.includes('open');
+                });
+                
+                const hasSymbol = row.some(cell => {
+                    const c = (cell || '').toLowerCase();
+                    return c.includes('symbol') || c.includes('品种') || c.includes('商品') || c.includes('product') || c.includes('ticker');
+                });
+                
+                // 如果同时有时间相关和品种相关的列，认为是表头
+                if (hasTime && hasSymbol) {
+                    headerRowIndex = i;
+                    headers = row.map(h => (h || '').replace(/[\"']/g, "").trim().toLowerCase());
+                    console.log("找到表头行:", headerRowIndex, headers);
+                    break;
+                }
+                
+                // 备用方案：如果某行包含"Symbol"或"Time"等英文关键词，也认为是表头
+                if (row.some(cell => (cell || '').toLowerCase() === 'symbol' || (cell || '').toLowerCase() === 'time')) {
+                    headerRowIndex = i;
+                    headers = row.map(h => (h || '').replace(/[\"']/g, "").trim().toLowerCase());
+                    console.log("备用表头行:", headerRowIndex, headers);
+                    break;
+                }
+            }
+            
+            if (headerRowIndex === -1) {
+                // 尝试第一行作为表头
+                console.log("未找到明确表头，使用第一行作为表头");
+                headerRowIndex = 0;
+                headers = dataArray[0].map(h => (h || '').replace(/[\"']/g, "").trim().toLowerCase());
+            }
+            
+            // 映射列索引 - 增强匹配
+            const timeIdx = headers.findIndex(h => h.includes('time') || h.includes('date') || h.includes('时间') || h.includes('close') || h.includes('结算'));
+            const symbolIdx = headers.findIndex(h => h.includes('symbol') || h.includes('品种') || h.includes('商品') || h.includes('product') || h.includes('ticker'));
+            const directionIdx = headers.findIndex(h => h.includes('direction') || h.includes('type') || h.includes('方向') || h.includes('buy/sell') || h.includes('action'));
+            const lotsIdx = headers.findIndex(h => h.includes('lot') || h.includes('volume') || h.includes('数量') || h.includes('size') || h.includes('hand'));
+            const profitIdx = headers.findIndex(h => h.includes('profit') || h.includes('pnl') || h.includes('盈亏') || h.includes('gain') || h.includes('loss') || h.includes('net'));
+            const balanceIdx = headers.findIndex(h => h.includes('balance') || h.includes('余额') || h.includes('equity'));
+            
+            console.log("列索引映射:", { timeIdx, symbolIdx, directionIdx, lotsIdx, profitIdx, balanceIdx });
+            
+            if (timeIdx === -1 || symbolIdx === -1) {
+                // 显示调试信息帮助用户
+                let debugInfo = "无法识别必要列（时间、品种）。\n\n检测到的表头:\n" + headers.join(', ') + "\n\n请确保 Excel 文件包含类似以下列名:\n- Time/Date/时间/平仓时间\n- Symbol/品种/商品";
+                console.error(debugInfo);
+                alert("❌ " + debugInfo);
+                return;
+            }
+            
+            const tbody = document.getElementById("logs-tbody");
+            tbody.innerHTML = "";
+            let importedCount = 0;
+            
+            for (let i = headerRowIndex + 1; i < dataArray.length; i++) {
+                const row = dataArray[i];
+                
+                // 跳过空行或分隔行
+                if (!row || row.length === 0 || row[0]?.startsWith('=====') || row[0]?.startsWith('工作表')) continue;
+                
+                // 确保行有足够的列
+                const maxIdx = Math.max(timeIdx, symbolIdx, profitIdx, lotsIdx);
+                if (row.length <= maxIdx) continue;
+                
+                let timeStr = row[timeIdx] || "";
+                // 处理 Excel 日期格式 (数字)
+                if (typeof timeStr === 'number') {
+                    // Excel 日期序列号转换
+                    const excelDate = timeStr;
+                    const unixDate = (excelDate - 25569) * 86400 * 1000;
+                    timeStr = new Date(unixDate).toISOString().replace('T', ' ').substring(0, 19);
+                }
+                
+                let symbol = (row[symbolIdx] || '').toString().toUpperCase();
+                let rawDir = directionIdx !== -1 ? (row[directionIdx] || 'BUY') : 'BUY';
+                let direction = (rawDir.toString().includes('买') || rawDir.toString().toUpperCase().includes('BUY')) ? 'BUY' : 'SELL';
+                
+                let lotsRaw = lotsIdx !== -1 ? (row[lotsIdx] || '0.01') : '0.01';
+                if (typeof lotsRaw === 'number') lotsRaw = lotsRaw.toString();
+                
+                let netProfit = 0;
+                if (profitIdx !== -1 && row[profitIdx] !== undefined) {
+                    const profitVal = row[profitIdx];
+                    if (typeof profitVal === 'string') {
+                        netProfit = parseFloat(profitVal.replace(/[^\d.-]/g, '')) || 0;
+                    } else if (typeof profitVal === 'number') {
+                        netProfit = profitVal;
                     }
                 }
-                if(headerLineIndex === -1) { alert("未找到表头"); return; }
-                const timeIdx = headers.findIndex(h => h.includes("平仓时间") || h.includes("close time") || h.includes("time"));
-                const symbolIdx = headers.findIndex(h => h.includes("交易品种") || h.includes("symbol"));
-                const directionIdx = headers.findIndex(h => h.includes("开仓方向") || h.includes("方向"));
-                const profitIdx = headers.findIndex(h => (h.includes("净值") && !h.includes("余额")) || h === "净值($)" || h.includes("pnl"));
-                const balanceIdx = headers.findIndex(h => h.includes("账户余额") || h === "余额");
-                if(timeIdx === -1 || symbolIdx === -1) { alert("缺少必要列"); return; }
-                const tbody = document.getElementById("logs-tbody");
-                tbody.innerHTML = "";
-                let importedCount = 0;
-                for(let i=headerLineIndex+1; i<lines.length; i++) {
-                    const line = lines[i];
-                    if(line.startsWith("=====") || line.startsWith("工作表")) continue;
-                    const cols = line.split(delimiter).map(c => c.replace(/[\"']/g, "").trim());
-                    if(cols.length <= Math.max(timeIdx, symbolIdx, profitIdx)) continue;
-                    let timeStr = cols[timeIdx] || "";
-                    let symbol = cols[symbolIdx].toUpperCase();
-                    let rawDir = directionIdx !== -1 ? cols[directionIdx] : "BUY";
-                    let direction = (rawDir.includes("买") || rawDir.includes("BUY")) ? "BUY" : "SELL";
-                    let lotsRaw = cols.length > 5 ? cols[5] : "0.01";
-                    let netProfit = profitIdx !== -1 ? parseFloat(cols[profitIdx].replace(/[^\d.-]/g, "")) || 0 : 0;
-                    let balance = (balanceIdx !== -1) ? parseFloat(cols[balanceIdx].replace(/[^\d.-]/g, "")) : NaN;
-                    if(!symbol || isNaN(netProfit)) continue;
-                    const tr = document.createElement("tr");
-                    tr.setAttribute("data-profit", netProfit);
-                    if(!isNaN(balance)) tr.setAttribute("data-balance", balance);
-                    const profitClass = netProfit >= 0 ? "up-color" : "down-color";
-                    tr.innerHTML = `<td>${timeStr}</td><td><strong>${symbol}</strong></td><td class="${direction==='BUY'?'up-color':'down-color'}">${direction}</td><td>${lotsRaw}</td><td class="${profitClass}">${netProfit >= 0 ? '+' : ''}$${netProfit.toFixed(2)}</td>`;
-                    tbody.appendChild(tr);
-                    importedCount++;
+                
+                let balance = NaN;
+                if (balanceIdx !== -1 && row[balanceIdx] !== undefined) {
+                    const balVal = row[balanceIdx];
+                    if (typeof balVal === 'string') {
+                        balance = parseFloat(balVal.replace(/[^\d.-]/g, ''));
+                    } else if (typeof balVal === 'number') {
+                        balance = balVal;
+                    }
                 }
-                if(importedCount === 0) alert("未解析到数据");
-                else {
-                    // 导入后重新渲染曲线（曲线内部会按时间排序）
-                    renderEquityChart();
-                    autoSaveToLocalStorage();
-                    alert(`✅ 导入 ${importedCount} 笔交易，最新记录已置顶显示。`);
-                }
-            };
-            reader.readAsText(file, "UTF-8");
+                
+                if (!symbol || (profitIdx !== -1 && isNaN(netProfit) && balanceIdx === -1)) continue;
+                
+                const tr = document.createElement("tr");
+                tr.setAttribute("data-profit", netProfit);
+                if (!isNaN(balance)) tr.setAttribute("data-balance", balance);
+                
+                const profitClass = netProfit >= 0 ? "up-color" : "down-color";
+                tr.innerHTML = `<td>${timeStr}</td><td><strong>${symbol}</strong></td><td class="${direction==='BUY'?'up-color':'down-color'}">${direction}</td><td>${lotsRaw}</td><td class="${profitClass}">${netProfit >= 0 ? '+' : ''}$${netProfit.toFixed(2)}</td>`;
+                tbody.appendChild(tr);
+                importedCount++;
+            }
+            
+            if (importedCount === 0) {
+                alert("⚠️ 未解析到有效交易数据。请检查文件格式。");
+            } else {
+                // 导入后重新渲染曲线（曲线内部会按时间排序）
+                renderEquityChart();
+                autoSaveToLocalStorage();
+                alert(`✅ 成功导入 ${importedCount} 笔交易记录！`);
+            }
         }
         
         // 曲线点击取值 (复用之前逻辑)
@@ -522,7 +661,7 @@
                 index = Math.min(Math.max(0, index), window.currentChartPoints.length-1);
                 const balanceVal = window.currentChartPoints[index];
                 const timeLabel = window.currentChartTimes[index] || "未知时间";
-                tooltip.innerHTML = `📌 ${timeLabel}<br>💰 账户余额: $${balanceVal.toFixed(2)}`;
+                tooltip.innerHTML = `📌 ${timeLabel}<br>💰 账户余额：$${balanceVal.toFixed(2)}`;
                 tooltip.style.display = "block";
                 tooltip.style.left = (e.clientX + 15) + "px";
                 tooltip.style.top = (e.clientY - 30) + "px";
@@ -531,7 +670,7 @@
             document.body.addEventListener("click", (e) => { if(!svg.contains(e.target)) tooltip.style.display = "none"; });
         }
         
-        // 持久化: 保存持仓和历史
+        // 持久化：保存持仓和历史
         function assemblePayload() {
             const themesData = [];
             document.querySelectorAll("#themes-container .panel").forEach(p => {
@@ -553,7 +692,7 @@
                     logsData.push({ time: tds[0].innerText, symbol: tds[1].innerText, dir: tds[2].innerText, lots: tds[3].innerText, profit: profitAttr ? parseFloat(profitAttr) : 0, balance: balanceAttr ? parseFloat(balanceAttr) : null });
                 }
             });
-            return { version: "6.0-position-close", timestamp: Date.now(), themes: themesData, portfolio: portfolioData, logs: logsData };
+            return { version: "6.0-position-close-excel", timestamp: Date.now(), themes: themesData, portfolio: portfolioData, logs: logsData };
         }
         function autoSaveToLocalStorage() { localStorage.setItem("alpha_station_core_data", JSON.stringify(assemblePayload())); const s=document.getElementById("save-status"); s.innerText="⚡ 实时保存"; s.style.color="var(--accent-green)"; setTimeout(()=>{ s.innerText="💾 持久缓存已锁死"; s.style.color="var(--accent-gold)"; },1000); }
         function applyPayloadToUI(payload) {
@@ -573,7 +712,7 @@
         function exportDataLocally() { const blob = new Blob([JSON.stringify(assemblePayload(), null, 2)], {type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`AlphaStation_v6.json`; a.click(); URL.revokeObjectURL(blob); }
         function importLocalJSONBackup(input) { const file = input.files[0]; if(!file) return; const reader = new FileReader(); reader.onload = function(e) { try { const data = JSON.parse(e.target.result); applyPayloadToUI(data); autoSaveToLocalStorage(); alert("快照恢复成功"); } catch(err) { alert("解析失败"); } }; reader.readAsText(file); }
         function toggleEditTheme(id) { /* 保留原编辑功能 */ const block = document.getElementById('content-'+id); const btn = block.previousElementSibling.querySelector('.action-badge-btn'); if(!block.querySelector('textarea')) { block.innerHTML = `<textarea class="editable-textarea" oninput="autoSaveToLocalStorage()">${block.innerText}</textarea>`; btn.innerText="💾 保存"; btn.classList.add('saving'); } else { let val = block.querySelector('textarea').value; block.innerText = val; formatTurtleFormula(block); btn.innerText="📝 修改"; btn.classList.remove('saving'); autoSaveToLocalStorage(); } }
-        function formatTurtleFormula(block) { if(block.innerHTML.includes("头寸单位")) block.innerHTML = block.innerHTML.replace(/(头寸单位[：\s=]+)([^单\n]+)/g, '<div class="formula-box">$2</div>'); }
+        function formatTurtleFormula(block) { if(block.innerHTML.includes("头寸单位")) block.innerHTML = block.innerHTML.replace(/(头寸单位 [：\s=]+)([^单\n]+)/g, '<div class="formula-box">$2</div>'); }
         window.onload = function() { if(!loadFromLocalStorage()) { addPositionRow(); renderEquityChart(); } setupChartClick(); };
     </script>
 </body>
