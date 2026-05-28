@@ -671,30 +671,85 @@
         }
         
         // 持久化：保存持仓和历史
+        // ========== 核心持久化系统 v6.1 (增强版) ==========
+        const STORAGE_KEY = "alpha_station_core_data_v6.1";
+        
         function assemblePayload() {
             const themesData = [];
             document.querySelectorAll("#themes-container .panel").forEach(p => {
                 const id = p.getAttribute("data-theme-id");
-                const text = document.getElementById("content-" + id).innerText;
+                const textEl = document.getElementById("content-" + id);
+                // 如果正在编辑，取 textarea 的值，否则取 innerText
+                const text = textEl.querySelector('textarea') ? textEl.querySelector('textarea').value : textEl.innerText;
                 themesData.push({ id, text });
             });
+            
             const portfolioData = [];
             document.querySelectorAll("#portfolio-tbody tr").forEach(tr => {
                 const inputs = tr.querySelectorAll("input");
-                if(inputs.length >= 5) portfolioData.push({ symbol: inputs[0].value, dir: inputs[1].value, lots: inputs[2].value, openPrice: inputs[3].value, curPrice: inputs[4].value });
+                if(inputs.length >= 5) {
+                    portfolioData.push({ 
+                        symbol: inputs[0].value, 
+                        dir: inputs[1].value, 
+                        lots: inputs[2].value, 
+                        openPrice: inputs[3].value, 
+                        curPrice: inputs[4].value 
+                    });
+                }
             });
+            
             const logsData = [];
             document.querySelectorAll("#logs-tbody tr").forEach(tr => {
                 const tds = tr.querySelectorAll("td");
                 if(tds.length >= 5) {
                     const profitAttr = tr.getAttribute("data-profit");
                     const balanceAttr = tr.getAttribute("data-balance");
-                    logsData.push({ time: tds[0].innerText, symbol: tds[1].innerText, dir: tds[2].innerText, lots: tds[3].innerText, profit: profitAttr ? parseFloat(profitAttr) : 0, balance: balanceAttr ? parseFloat(balanceAttr) : null });
+                    logsData.push({ 
+                        time: tds[0].innerText, 
+                        symbol: tds[1].innerText.replace(/<[^>]*>/g, ""), // 去除加粗标签
+                        dir: tds[2].innerText, 
+                        lots: tds[3].innerText, 
+                        profit: profitAttr ? parseFloat(profitAttr) : 0, 
+                        balance: balanceAttr ? parseFloat(balanceAttr) : null 
+                    });
                 }
             });
-            return { version: "6.0-position-close-excel", timestamp: Date.now(), themes: themesData, portfolio: portfolioData, logs: logsData };
+            return { version: "6.1-fixed", timestamp: Date.now(), themes: themesData, portfolio: portfolioData, logs: logsData };
         }
-        function autoSaveToLocalStorage() { localStorage.setItem("alpha_station_core_data", JSON.stringify(assemblePayload())); const s=document.getElementById("save-status"); s.innerText="⚡ 实时保存"; s.style.color="var(--accent-green)"; setTimeout(()=>{ s.innerText="💾 持久缓存已锁死"; s.style.color="var(--accent-gold)"; },1000); }
+
+        function saveData(forceMessage = false) {
+            try {
+                const payload = assemblePayload();
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+                
+                const statusEl = document.getElementById("save-status");
+                statusEl.innerText = "✅ 已保存至本地缓存";
+                statusEl.style.color = "var(--accent-green)";
+                
+                if(forceMessage) {
+                    setTimeout(() => {
+                        statusEl.innerText = "🔒 数据已持久化锁死";
+                        statusEl.style.color = "var(--accent-gold)";
+                    }, 2000);
+                } else {
+                    setTimeout(() => {
+                        statusEl.innerText = "🟢 自动保存就绪";
+                        statusEl.style.color = "var(--text-secondary)";
+                    }, 1500);
+                }
+                return true;
+            } catch (e) {
+                console.error("保存失败:", e);
+                document.getElementById("save-status").innerText = "❌ 保存失败 (检查存储空间)";
+                document.getElementById("save-status").style.color = "var(--accent-red)";
+                return false;
+            }
+        }
+
+        // 包装原有的 autoSaveToLocalStorage 为 saveData
+        function autoSaveToLocalStorage() {
+            saveData(false);
+        }
         function applyPayloadToUI(payload) {
             if(payload.themes) payload.themes.forEach(t => { const el = document.getElementById("content-" + t.id); if(el) { el.innerText = t.text; formatTurtleFormula(el); } });
             if(payload.portfolio) { const pTbody = document.getElementById("portfolio-tbody"); pTbody.innerHTML = ""; payload.portfolio.forEach(p => addPositionRow(p)); }
@@ -708,7 +763,17 @@
             }); }
             renderEquityChart();
         }
-        function loadFromLocalStorage() { const raw = localStorage.getItem("alpha_station_core_data"); if(!raw) return false; try { applyPayloadToUI(JSON.parse(raw)); return true; } catch(e) { return false; } }
+        function loadFromLocalStorage() { 
+            const raw = localStorage.getItem(STORAGE_KEY); 
+            if(!raw) return false; 
+            try { 
+                applyPayloadToUI(JSON.parse(raw)); 
+                return true; 
+            } catch(e) { 
+                console.error("加载失败:", e);
+                return false; 
+            } 
+        }
         function exportDataLocally() { const blob = new Blob([JSON.stringify(assemblePayload(), null, 2)], {type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`AlphaStation_v6.json`; a.click(); URL.revokeObjectURL(blob); }
         function importLocalJSONBackup(input) { const file = input.files[0]; if(!file) return; const reader = new FileReader(); reader.onload = function(e) { try { const data = JSON.parse(e.target.result); applyPayloadToUI(data); autoSaveToLocalStorage(); alert("快照恢复成功"); } catch(err) { alert("解析失败"); } }; reader.readAsText(file); }
         function toggleEditTheme(id) { /* 保留原编辑功能 */ const block = document.getElementById('content-'+id); const btn = block.previousElementSibling.querySelector('.action-badge-btn'); if(!block.querySelector('textarea')) { block.innerHTML = `<textarea class="editable-textarea" oninput="autoSaveToLocalStorage()">${block.innerText}</textarea>`; btn.innerText="💾 保存"; btn.classList.add('saving'); } else { let val = block.querySelector('textarea').value; block.innerText = val; formatTurtleFormula(block); btn.innerText="📝 修改"; btn.classList.remove('saving'); autoSaveToLocalStorage(); } }
